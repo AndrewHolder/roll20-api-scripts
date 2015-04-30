@@ -1,12 +1,12 @@
 /*
-    Current Version: 2.6
+    Current Version: 3.0
     Last updated: 04.15.2015
-    Character Sheet and Script Maintained by: Steve Day
+    Character Sheet and Script Maintained by: Steve Day & Andrew Holder
     Current Verion: https://github.com/Roll20/roll20-api-scripts/tree/master/EotE%20Dice%20Roller
     Development and Older Verions: https://github.com/dayst/StarWarsEdgeOfTheEmpire_Dice
     
     Credits:
-    	Original creator: Konrad J.
+        Original creator: Konrad J.
 		Helped with Dice specs: Alicia G. and Blake the Lake
 		Dice graphics hosted by Alicia G. at galacticcampaigns.com
 		Dice graphics borrowed from the awesome google+ hangouts EotE Dice App
@@ -76,6 +76,11 @@
 			* default: 
 			* Description: downgrades proficiency and challenge dice
 			* Command: !eed downgrade(proficiency|#) or downgrade(challenge|#)
+			
+		destiny
+			* default:
+			* Description: Rolls 1w die and adds the result to the destiny pool
+			* Command: !eed #w destiny doRoll
 
 	
 */
@@ -205,7 +210,9 @@
         	crit : /crit\((.*?)\)/,
         	critShip : /critship\((.*?)\)/,
             unusable : /unusableWeapon/,
-        }
+            destiny : /destiny (useDark|useLight|registerPlayer|sendUpdate|doRoll|clearPool)/,
+        },
+        destinyListeners : []  
     }
     
     eote.createGMDicePool = function() {
@@ -224,7 +231,7 @@
                 current : 2,
                 max : '',
                 update : true
-            }   
+            }
         ];
         
         //create character -DicePool
@@ -280,6 +287,30 @@
         });
     }
     
+    eote.updateListeners = function(attributes) {
+
+        _.each(eote.defaults.destinyListeners,function(charID){
+
+        var charObj = findObjs({ _type: "character",
+                                _id: charID
+        });
+        
+        //add/update characterID feild
+        _.each(charObj, function(charObj){
+            
+            //Attributes
+            eote.updateAddAttribute(charObj, attributes); //Update Add Attribute defaults
+
+        });
+        });
+        
+        //Update GM
+        var GMObj = findObjs({ _type: "character",
+                                _id:  eote.defaults['-DicePoolID']
+        });
+        eote.updateAddAttribute(GMObj, attributes);
+    }
+    
     eote.updateAddAttribute = function(charactersObj, updateAddAttributesObj ) { // charactersObj = object or array objects, updateAddAttributesObj = object or array objects
     
         //check if object or array
@@ -306,7 +337,7 @@
             
             if (updateAddAttributesObj.length != 0) {
                 
-                //log('UPDATE/ADD ATTRIBUTES FOR:----------------------->'+ characterName);
+                log('UPDATE/ADD ATTRIBUTES FOR:----------------------->'+ characterName);
                 
             
                _.each(updateAddAttributesObj, function(updateAddAttrObj){ //loop attributes to update / add
@@ -317,12 +348,12 @@
     
                     if (attr) {
                        if (updateAddAttrObj.update) {
-                            //log('Update Attr: '+ updateAddAttrObj.name);
+                            log('Update Attr: '+ updateAddAttrObj.name);
                             attr.set({current: updateAddAttrObj.current});
                             attr.set({max: updateAddAttrObj.max ? updateAddAttrObj.max : ''});
             			}
             		} else {
-            		   // log('Add Attr: '+ updateAddAttrObj.name);
+            		    log('Add Attr: '+ updateAddAttrObj.name);
                         eote.createObj('attribute', {
                 			characterid: characterObj.id,
                 			name: updateAddAttrObj.name,
@@ -566,6 +597,16 @@
                 eote.process.initiative(initiativeMatch, diceObj);
                 //return false;
             }
+            
+        var destinyMatch = cmd.match(eote.defaults.regex.destiny);
+        
+        if (destinyMatch) {
+            eote.process.logger("etoe.process.setup.destiny","Destiny Point Command");
+            var doRoll = eote.process.destiny(destinyMatch, diceObj);
+            if (!doRoll){
+                return false;
+            }
+        }
         
         var critMatch = cmd.match(eote.defaults.regex.crit);
         
@@ -749,6 +790,111 @@
         return diceObj;
 		
 	}
+    
+    eote.process.destiny = function(cmd, diceObj){
+        
+        var charObj_DicePool = findObjs({ _type: "character", name: "-DicePool" })[0];
+        
+        var doRoll = false;
+        
+        if (!charObj_DicePool)
+        {
+             sendChat("Dice System","We can't find the DicePool player! SEND HELP!");
+             return doRoll;
+        }
+        
+        //GM's Destiny Point Pool
+        var currentLightSidePoints = findObjs({                              
+            _characterid: charObj_DicePool.get("_id"),                              
+            _type: "attribute",
+            _name: "lightSidePoints"
+        });
+        var currentDarkSidePoints = findObjs({                              
+            _characterid: charObj_DicePool.get("_id"),                              
+            _type: "attribute",
+            _name: "darkSidePoints"
+        });
+        
+        if (!currentDarkSidePoints[0] || !currentLightSidePoints[0]) {
+            sendChat("Dice System","No Destiny Points Defined.  GM needs to add points then update players."); 
+            return doRoll;
+        }
+        
+        var darkSide = parseInt(currentDarkSidePoints[0].get("current"));
+        var lightSide = parseInt(currentLightSidePoints[0].get("current"));
+        
+        switch(cmd[1]) {
+        	case "useDark":
+                if (darkSide > 0)
+                {
+                   sendChat("The GM","Uses a dark side point!"); 
+                   darkSide = darkSide - 1;
+                   lightSide = lightSide + 1;
+                }
+                else
+                {
+                    sendChat("Dice System","No dark side points to use!");
+                    return doRoll;
+                }                
+                break;
+            case "useLight":
+                if (lightSide > 0)
+                {
+                   sendChat(diceObj.vars.characterName,"Uses a light side point!"); 
+                   lightSide = lightSide - 1;
+                   darkSide = darkSide + 1;
+                }
+                else
+                {
+                    sendChat("Dice System","No light side points to use!");
+                    return doRoll;
+                }
+                break;
+            case "doRoll":
+                sendChat(diceObj.vars.characterName,"Rolling Destiny Point");
+                doRoll = true;
+            case "registerPlayer":
+                if (!doRoll) {
+                   sendChat(diceObj.vars.characterName,"Regestering with Destiny Pool"); 
+                }
+                darkSide = darkSide + diceObj.totals.dark;
+                lightSide = lightSide + diceObj.totals.light;
+  
+                //Register 
+                if (eote.defaults.destinyListeners.indexOf(diceObj.vars.characterID) == -1) {
+                    eote.defaults.destinyListeners.push(diceObj.vars.characterID);
+                }
+                
+                break;
+            case "sendUpdate":
+                sendChat("Dice System","Updating Players Destiny Pools");  
+                break;
+            case "clearPool":
+                sendChat("Dice System","Clearing The Destiny Pool");
+                lightSide = 0;
+                darkSide = 0;
+                break;
+        }
+        
+         var newDestPool = [
+            {
+                name : 'lightSidePoints',
+                current : lightSide,
+                max : '',
+                update : true
+            },
+            {
+                name : 'darkSidePoints',
+                current : darkSide,
+                max : '',
+                update : true
+            }
+        ];
+        
+        eote.updateListeners(newDestPool);
+        
+        return doRoll;
+    }
     
     eote.process.characterID = function(cmd, diceObj){
         
