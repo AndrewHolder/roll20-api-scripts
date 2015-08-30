@@ -3,13 +3,13 @@
 // Contact:  https://app.roll20.net/users/104025/the-aaron
 
 var TokenMod = TokenMod || (function() {
-	'use strict';
+    'use strict';
 
-	var version = '0.8.1',
-        lastUpdate = 1427607758,
-		schemaVersion = 0.1,
+    var version = '0.8.9',
+        lastUpdate = 1437936106,
+        schemaVersion = 0.1,
 
-		fields = {
+    	fields = {
 			// booleans
 			showname: {type: 'boolean'},
 			showplayers_name: {type: 'boolean'},
@@ -60,6 +60,9 @@ var TokenMod = TokenMod || (function() {
 			bar1: {type: 'text'},
 			bar2: {type: 'text'},
 			bar3: {type: 'text'},
+			bar1_reset: {type: 'text'},
+			bar2_reset: {type: 'text'},
+			bar3_reset: {type: 'text'},
 
 
 			// colors
@@ -157,13 +160,16 @@ var TokenMod = TokenMod || (function() {
 	+'</div>'
 	+'<b>Commands</b>'
 	+'<div style="padding-left:10px;">'
-		+'<b><span style="font-family: serif;">!token-mod '+ch('<')+'<i>--help</i>|<i>--config</i>|<i>--on</i>|<i>--off</i>|<i>--flip</i>|<i>--set</i>'+ch('>')+' '+ch('<')+'parameter'+ch('>')+' '+ch('[')+ch('<')+'parameter'+ch('>')+' ...'+ch(']')+' ... '+ch('[')+'<i>--ids</i> '+ch('<')+'token_id'+ch('>')+' '+ch('[')+ch('<')+'token_id'+ch('>')+' ...'+ch(']')+ch(']')+'</span></b>'
+		+'<b><span style="font-family: serif;">!token-mod '+ch('<')+'<i>--help</i>|<i>--ignore-selected</i>|<i>--config</i>|<i>--on</i>|<i>--off</i>|<i>--flip</i>|<i>--set</i>'+ch('>')+' '+ch('<')+'parameter'+ch('>')+' '+ch('[')+ch('<')+'parameter'+ch('>')+' ...'+ch(']')+' ... '+ch('[')+'<i>--ids</i> '+ch('<')+'token_id'+ch('>')+' '+ch('[')+ch('<')+'token_id'+ch('>')+' ...'+ch(']')+ch(']')+'</span></b>'
 		+'<div style="padding-left: 10px;padding-right:20px">'
 			+'<p>This command takes a list of modifications and applies them to the selected tokens (or tokens specified with --ids by a GM or Player depending on configuration).  Note that each --option can be specified multiple times and in any order.</p>'
 			+'<p><b>Note:</b> If you are using multiple '+ch('@')+ch('{')+'target'+ch('|')+'token_id'+ch('}')+' calls in a macro, and need to adjust fewer than the supplied number of token ids, simply select the same token several times.  The duplicates will be removed.</p>'
 			+'<ul>'
 				+'<li style="border-top: 1px solid #ccc;border-bottom: 1px solid #ccc;">'
 					+'<b><span style="font-family: serif;">'+ch('<')+'--help'+ch('>')+'</span></b> '+ch('-')+' Displays this help.'
+				+'</li> '
+				+'<li style="border-top: 1px solid #ccc;border-bottom: 1px solid #ccc;">'
+					+'<b><span style="font-family: serif;">'+ch('<')+'--ignore-selected'+ch('>')+'</span></b> '+ch('-')+' Prevents modifications to the selected tokens (only modifies tokens passed with --ids).'
 				+'</li> '
 				+'<li style="border-top: 1px solid #ccc;border-bottom: 1px solid #ccc;">'
 					+'<b><span style="font-family: serif;">'+ch('<')+'--config'+ch('>')+'</span></b> '+ch('-')+' Sets Config options. '
@@ -340,6 +346,9 @@ var TokenMod = TokenMod || (function() {
 			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar1</div>'
 			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar2</div>'
 			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar3</div>'
+			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar1_reset</div>'
+			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar2_reset</div>'
+			+'<div style="width: 130px; padding: 0px 3px;float: left;">bar3_reset</div>'
 			+'<div style="clear:both;">'+ch(' ')+'</div>'
 			+'<p>Setting the name to Sir Thomas and bar1 to 23.</p>'
 			+'<div style="padding-left: 10px;padding-right:20px">'
@@ -351,6 +360,12 @@ var TokenMod = TokenMod || (function() {
 			+'<div style="padding-left: 10px;padding-right:20px">'
 				+'<pre style="white-space:normal;word-break:normal;word-wrap:normal;">'
 					+'!token-mod --set bar1|'+ch('[')+ch('[')+'3d6+8'+ch(']')+ch(']')
+				+'</pre>'
+			+'</div>'
+			+'<p><i>bar1_reset</i>, <i>bar2_reset</i> and <i>bar3_reset</i> are special.  Any value set on them will be ignored, instead they well set the <i>_value</i> field for that bar to whatever the matching <i>_max</i> field is set to.  This is most useful for resetting hit points or resource counts like spells. (The | is currently stille required.)</p>'
+			+'<div style="padding-left: 10px;padding-right:20px">'
+				+'<pre style="white-space:normal;word-break:normal;word-wrap:normal;">'
+					+'!token-mod --set bar1_reset| bar3_reset|'
 				+'</pre>'
 			+'</div>'
 		+'</div>'
@@ -682,16 +697,16 @@ var TokenMod = TokenMod || (function() {
 					break;
 				case 'toback':
 					break;
-				case 'randomdepth':
-					break;
 
 				case 'player_id':
 					break;
 
 				case 'status':
-					_.each(args, function(a) {
+        			_.each(args, function(a) {
 						var s = a.split(/:/),
-							stat = s.shift(),
+							statparts = s.shift().match(/^(\S+?)(\[(\d*)\]|)$/)||[],
+                            index = ( '[]' === statparts[2] ? statparts[2] : ( undefined !== statparts[3] ? Math.max(parseInt(statparts[3],10)-1,0) : 0 ) ),
+                            stat=statparts[1]||'',
 							op = (_.contains(['-','+','=','!'],stat[0]) ? stat[0] : false),
 							numraw = s.shift() || '',
 							numop = (_.contains(['-','+'],numraw[0]) ? numraw[0] : false),
@@ -703,6 +718,7 @@ var TokenMod = TokenMod || (function() {
 							retr[cmd].push({
 								status: stat,
 								number: num,
+                                index: index,
 								sign: numop,
 								operation: op || '+'
 							});
@@ -761,16 +777,46 @@ var TokenMod = TokenMod || (function() {
 			},base)
 			.value();
 	},
+    
+    decomposeStatuses = function(statuses){
+        return _.reduce(statuses.split(/,/).reverse(),function(memo,st,idx){
+            var parts=st.split(/@/),
+            entry = {
+                mark: parts[0],
+                num: parseInt(parts[1],10) || 0,
+                idx: idx
+            };
+            if(parts[0].length) {
+                memo[parts[0]] = ( memo[parts[0]] && memo[parts[0]].push(entry) && memo[parts[0]]) || [entry] ;
+            }
+            return memo;
+        },{});
+    },
+
+    composeStatuses = function(statuses){
+        return _.chain(statuses)
+            .reduce(function(m,s){
+                _.each(s,function(sd){
+                    m.push(sd);
+                });
+                return m;
+            },[])
+            .sortBy(function(s){
+                return s.idx;
+            })
+            .map(function(s){
+                return ('dead'===s.mark ? 'dead' : ( s.mark+(s.num>0 ? '@'+s.num : '')));
+            })
+            .value()
+            .reverse()
+            .join(',');
+    },    
+    
 	applyModListToToken = function(modlist, token) {
 		var mods={},
 			delta, cid,
-			current=_.reduce(token.get('statusmarkers').split(/,/),function(memo,st){
-				var parts=st.split(/@/);
-				if(parts[0].length) {
-					memo[parts[0]]=parseInt(parts[1],10)||0;
-				}
-				return memo;
-			},{});
+			current=decomposeStatuses(token.get('statusmarkers')||''),
+            statusCount=token.get('statusmarkers').split(/,/).length;
 
 		_.each(modlist.on,function(f){
 			mods[f]=true;
@@ -787,21 +833,52 @@ var TokenMod = TokenMod || (function() {
 					_.each(f, function (sm){
 						switch(sm.operation){
 							case '!':
-								if(_.has(current,sm.status)){
-									current = _.omit(current,sm.status);
+								if('[]' !== sm.index && _.has(current,sm.status) ){
+                                    if( _.has(current[sm.status],sm.index) ) {
+                                        current[sm.status]= _.filter(current[sm.status],function(e,idx){
+                                            return idx !== sm.index;
+                                        });
+                                    }
 								} else {
-									current[sm.status] = Math.max(0,Math.min(9,getRelativeChange(current[sm.status], sm.sign+sm.number)));
+                                    current[sm.status] = current[sm.status] || [];
+									current[sm.status].push({
+                                        mark: sm.status,
+                                        num: Math.max(0,Math.min(9,getRelativeChange(0, sm.sign+sm.number))),
+                                        index: statusCount++
+                                    });
 								}
 								break;
 							case '+':
-								current[sm.status] = Math.max(0,Math.min(9,getRelativeChange(current[sm.status], sm.sign+sm.number)));
+								if('[]' !== sm.index && _.has(current,sm.status) && _.has(current[sm.status],sm.index)){
+                                    current[sm.status][sm.index].num = (Math.max(0,Math.min(9,getRelativeChange(current[sm.status][sm.index].num, sm.sign+sm.number))));
+                                } else {
+                                    current[sm.status] = current[sm.status] || [];
+									current[sm.status].push({
+                                        mark: sm.status,
+                                        num: Math.max(0,Math.min(9,getRelativeChange(0, sm.sign+sm.number))),
+                                        index: statusCount++
+                                    });
+                                }
 								break;
 							case '-':
-								current = _.omit(current,sm.status);
+								if('[]' !== sm.index && _.has(current,sm.status)){
+                                    if( _.has(current[sm.status],sm.index )) {
+                                        current[sm.status]= _.filter(current[sm.status],function(e,idx){
+                                            return idx !== sm.index;
+                                        });
+                                    }
+                                } else {
+									current[sm.status]= _.first(current[sm.status],-1);
+                                }
 								break;
 							case '=':
 								current = {};
-								current[sm.status] = Math.max(0,Math.min(9,getRelativeChange(current[sm.status], sm.sign+sm.number)));
+                                current[sm.status] = [];
+                                current[sm.status].push({
+                                    mark: sm.status,
+                                    num: Math.max(0,Math.min(9,getRelativeChange(0, sm.sign+sm.number))),
+                                    index: statusCount++
+                                });
 								break;
 						}
 					});
@@ -862,6 +939,15 @@ var TokenMod = TokenMod || (function() {
 					}
 					break;
 
+				case 'bar1_reset':
+				case 'bar2_reset':
+				case 'bar3_reset':
+                    delta = token.get(k.replace(/_reset$/,'_max'));
+                    if(!_.isUndefined(delta)) {
+                        mods[k.replace(/_reset$/,'_value')]=delta;
+                    }
+					break;
+
 				case 'bar1_value':
 				case 'bar2_value':
 				case 'bar3_value':
@@ -879,9 +965,10 @@ var TokenMod = TokenMod || (function() {
 					break;
 			}
 		});
-		mods.statusmarkers=_.map(current,function(v,k){ return ('dead' === k ? k : k+'@'+v); }).join(',');
+		mods.statusmarkers=composeStatuses(current);
 		token.set(mods);
 	},
+
 
 	handleConfig = function(config, id) {
 		var args, cmd, who=getObj('player',id).get('_displayname').split(' ')[0];
@@ -927,6 +1014,7 @@ var TokenMod = TokenMod || (function() {
 	 handleInput = function(msg_orig) {
 		var msg = _.clone(msg_orig),
 			args, cmds, ids=[],
+            ignoreSelected = false,
 			modlist={
 				flip: [],
 				on: [],
@@ -941,7 +1029,16 @@ var TokenMod = TokenMod || (function() {
 		if(_.has(msg,'inlinerolls')){
 			msg.content = _.chain(msg.inlinerolls)
 				.reduce(function(m,v,k){
-					m['$[['+k+']]']=v.results.total || 0;
+                    var ti=_.reduce(v.results.rolls,function(m2,v2){
+                        if(_.has(v2,'table')){
+                            m2.push(_.reduce(v2.results,function(m3,v3){
+                                m3.push(v3.tableItem.name);
+                                return m3;
+                            },[]).join(', '));
+                        }
+                        return m2;
+                    },[]).join(', ');
+					m['$[['+k+']]']= (ti.length && ti) || v.results.total || 0;
 					return m;
 				},{})
 				.reduce(function(m,v,k){
@@ -987,6 +1084,10 @@ var TokenMod = TokenMod || (function() {
 							modlist.set=parseSetArguments(cmds,modlist.set);
 							break;
 
+                        case 'ignore-selected':
+                            ignoreSelected=true;
+                            break;
+
 						case 'ids':
 							ids=_.union(cmds,ids);
 							break;
@@ -1007,9 +1108,11 @@ var TokenMod = TokenMod || (function() {
 						});
 				}
 
-				_.each(msg.selected,function (o) {
-					applyModListToToken(modlist,getObj(o._type,o._id));
-				});
+                if(!ignoreSelected) {
+                    _.each(msg.selected,function (o) {
+                        applyModListToToken(modlist,getObj(o._type,o._id));
+                    });
+                }
 				break;
 
 		}

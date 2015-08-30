@@ -1,13 +1,13 @@
 /* read Help.txt */
 var NathaNumenera = NathaNumenera || (function () {
     'use strict';
-    var version = 4.2,
-    releasedate= "2015-04-20",
+    var version = 4.5,
+    releasedate= "2015-06-13",
     schemaversion = 1.0,
-	author="Natha (roll20userid:75857)",
-    warning = "Sheet must be in version 4+ : chat outputs and error messages are managed through the sheet's templates.",
+    author="Natha (roll20userid:75857)",
+    warning = "Sheet must be in version 4.5+ : chat outputs and error messages are managed through the sheet's templates.",
     //-----------------------------------------------------------------------------
-	checkInstall = function() {
+    checkInstall = function() {
         log(""+author+"'s Numenera API script version "+version+" ("+releasedate+") installed.");
         log(warning);
         log("This script works with both the French and English sheet:");
@@ -23,17 +23,21 @@ var NathaNumenera = NathaNumenera || (function () {
 	    var might = 0;
 	    var speed = 0;
 	    var intellect = 0;
+        var specdmg = 0;
 	    var damage = 0;
 	    var CurrentDamage = 0;
 	    // reading all relevant stats and attributes from the character
 	    might = parseInt(getAttrByName(characterObj.id, "might", "current")) || 0;
 	    speed = parseInt(getAttrByName(characterObj.id, "speed", "current")) || 0;
 	    intellect = parseInt(getAttrByName(characterObj.id, "intellect", "current")) || 0;
+        specdmg = parseInt(getAttrByName(characterObj.id, "SpecialDamage", "current")) || 0;
 	    // calculating the damage track depending on the stats
 	    // and setting the right markers depending on the damage track
+        damage += specdmg;
 	    if (might <= 0) {damage += 1};
 	    if (speed <= 0) {damage += 1};
 	    if (intellect <= 0) {damage += 1};
+        damage = Math.min(damage,3);
 	    CurrentDamage = parseInt(getAttrByName(characterObj.id, "damage-track", "current")) || 0;
 	    //sendChat("character|"+characterObj.get("id"), "Debug : Might = " + might + ", Damage Track = " + CurrentDamage + ", Damage = " + damage);
 	    if (CurrentDamage != damage) {
@@ -139,7 +143,20 @@ var NathaNumenera = NathaNumenera || (function () {
             return false;
         };
 
-	    //Markers & States & Damage track
+        // Special Damage
+	    var attObjArray = findObjs({
+	                    _type: 'attribute',
+	                    name: "SpecialDamage",
+	                    _characterid: characterObj.id
+	                });
+        if(attObjArray.length>0){
+            attObjArray[0].set("current", "0");
+        } else {
+            sendChat("character|"+characterObj.get("name"), "&{template:nathaNumMsg} {{chatmessage=restChar}} {{wtfAttribute=SpecialDamage}}");
+            return false;
+        };
+
+        //Markers & States & Damage track
 	    checkCharStates(characterObj);
 
 	    //output
@@ -152,7 +169,7 @@ var NathaNumenera = NathaNumenera || (function () {
 		  	The initiative roll is meant to be sorted/compared to (Level*3) of the NPCs/Creatures
 
 		  	The function :
-		  	    - Rolls 1d20, + the optional efforts (*3) + rollbonus.
+		  	    - Rolls 1d20, + the optional efforts (*3) + rollbonus + skill level (*3)
 		  	    - Expends the optional speed points from effort(s) and initial cost.
 		  	    - Then add the character, or its token (if on the map), to the tracker,
 		  	          or replace the initiative value if it's already in the tracker
@@ -181,6 +198,8 @@ var NathaNumenera = NathaNumenera || (function () {
 	    var bonusToRoll = parseInt(getAttrByName(characterObj.id, "InitVarBonus", "current")) || 0;
 	    var statExpense = parseInt(getAttrByName(characterObj.id, "InitVarCost", "current")) || 0;
 	    var effortsUsed = parseInt(getAttrByName(characterObj.id, "InitVarEffort", "current")) || 0;
+	    var assetsUsed = parseInt(getAttrByName(characterObj.id, "InitVarAsset", "current")) || 0;
+	    var skillLevel = parseInt(getAttrByName(characterObj.id, "InitVarSkill", "current")) || 0;
 	    // Rolling the dice
 	    var diceRoll = randomInteger(20);
 	    // checking for appliable effort and calculating statpool cost
@@ -211,7 +230,7 @@ var NathaNumenera = NathaNumenera || (function () {
 	    };
 
 	    // Calculating initiative
-	    var finalRoll = diceRoll + (effortsUsed*3) + bonusToRoll;
+	    var finalRoll = diceRoll + (effortsUsed*3) + (skillLevel*3) + (assetsUsed*3) + bonusToRoll;
 
 	    //Retrieving token, to add it to the turn tracker
 	    var tokenObj;
@@ -279,6 +298,11 @@ var NathaNumenera = NathaNumenera || (function () {
 	    if(bonusToRoll>0) tmplt+=" {{bonusToRoll="+bonusToRoll+"}}";
 	    if(effortsUsed>0) tmplt+=" {{effortsUsed="+effortsUsed+"}} {{effortCost="+effortCost+"}}";
 	    if(statExpense>0) tmplt+=" {{statExpense="+statExpense+"}}";
+	    if(assetsUsed>0) tmplt+=" {{assets="+assetsUsed+"}}";
+        if (skillLevel != 0) tmplt += " {{skilled=1}}";
+        if (skillLevel == 1) tmplt += " {{Trained=1}}";
+        if (skillLevel == 2) tmplt += " {{Specialized=1}}";
+        if (skillLevel == -1) tmplt += " {{Inability=1}}";
 	    if(totalCost>0)  tmplt+=" {{totalCost="+totalCost+"}} {{attrPool="+speedPool+"}} {{attrPoolInit="+speedPoolInit+"}}";
 	    sendChat("character|"+charId, ""+tmplt);
 	},
@@ -290,13 +314,14 @@ var NathaNumenera = NathaNumenera || (function () {
 	    var effortsOnRoll=parseInt(getAttrByName(characterObj.id, "rollVarRollEff", "current")) || 0;
 	    var effortsOnDmg=parseInt(getAttrByName(characterObj.id, "rollVarRollDmg", "current")) || 0;
 	    var rollBonus=parseInt(getAttrByName(characterObj.id, "rollVarBonus", "current")) || 0;
-	    statRoll(characterObj,statName,whoRolled,difficulty,statexp,assets,effortsOnRoll,effortsOnDmg,rollBonus);
+	    var skillLevel=parseInt(getAttrByName(characterObj.id, "rollVarSkill", "current")) || 0;
+	    statRoll(characterObj,statName,whoRolled,difficulty,statexp,assets,effortsOnRoll,effortsOnDmg,rollBonus,skillLevel);
 	},
 	//-----------------------------------------------------------------------------
-	statRoll = function (characterObj,statName,whoRolled,difficulty,statexp,assets,effortsOnRoll,effortsOnDmg,rollBonus) {
+	statRoll = function (characterObj,statName,whoRolled,difficulty,statexp,assets,effortsOnRoll,effortsOnDmg,rollBonus,skillLevel) {
 	    /*
 	    	Might/speed/intellect roll with eventual roll effort(s), additionnal cost,
-	    	damage effort(s), bonus to the roll (<3), against a difficulty (optional).
+	    	damage effort(s), bonus to the roll (<3), skill level, against a difficulty (optional).
 
 			Every necessary parameters for this function are attributes of the character sheet
 			(except the stat name).
@@ -305,8 +330,8 @@ var NathaNumenera = NathaNumenera || (function () {
 	    	The target number is calculated by the function.
 
 		    If difficulty is 0, the roll still happens, but is not confronted to any difficulty.
-
 		    Instead of calculating success, it calculates the highest difficulty beaten.
+
 	    	Unless d20 rolls a natural 20, pool points cost is calculted (taking the stat edge)
 	    	and expended, if necessary and if possible.
 
@@ -394,20 +419,24 @@ var NathaNumenera = NathaNumenera || (function () {
 	    };
 
 	    // beginning output calculation
-	    var tmplt="&{template:nathaNumRoll} {{"+attributeName+"="+attributeName+"}} {{attrEdge="+attrEdge+"}} {{finalRoll="+finalRoll+"}} {{diceRoll="+diceRoll+"}}";
+	    var tmplt="&{template:nathaNumRoll} {{"+attributeName+"="+attributeName+"}} {{attrEdge="+attrEdge+"}} {{finalRoll="+finalRoll+"}} {{diceRoll="+diceRoll+"}} {{skilled="+ skillLevel +"}}";
 	    if (bonusToRoll>0) tmplt += " {{bonusToRoll="+bonusToRoll+"}}";
 	    var assetsUsed = parseInt(0 || assets);
         if (assetsUsed>0) tmplt += " {{assets="+assetsUsed+"}}";
+        if (skillLevel == 0) tmplt += " {{Untrained=1}}";
+        if (skillLevel == 1) tmplt += " {{Trained=1}}";
+        if (skillLevel == 2) tmplt += " {{Specialized=1}}";
+        if (skillLevel == -1) tmplt += " {{Inability=1}}";
 
-		//computing target task
+		//computing final difficulty / target task
         var initDiff=parseInt(0 || difficulty);
 	    if (initDiff > 0) {
 	        var target = initDiff*3;
-	        var finalDiff= Math.max(0, initDiff-effortRoll-assetsUsed);
+	        var finalDiff= Math.max(0, initDiff-effortRoll-assetsUsed-skillLevel);
             var targetRoll = finalDiff*3;
 	        tmplt += "{{difficulty=" + initDiff + "}} {{target="+target+"}} {{finalDiff="+finalDiff+"}} {{targetRoll="+targetRoll+"}}";
 	    } else {
-            var rollBeats=Math.floor(finalRoll/3)+effortRoll+assetsUsed;
+            var rollBeats=Math.max(0, Math.floor(finalRoll/3)+effortRoll+assetsUsed+skillLevel);
             tmplt += " {{rollBeats="+rollBeats+" ("+(rollBeats*3)+")"+"}}";
 	    };
 
@@ -588,12 +617,13 @@ var NathaNumenera = NathaNumenera || (function () {
     handleAttributeEvent = function(obj, prev) {
         /*
         	Check and set character states according to stats pools attributes
-        		when their current values are manually changed on the sheet or directly in the character window.
+                and special damage, when their current values are manually
+                changed on the sheet or directly in the character window.
 	    	Note that this event isn't fired when attributes are modified by API functions,
-	    		that's why some function here call checkCharStates() too.
+	    		that's why some functions here call checkCharStates() too.
 	    */
 	    var attrName = obj.get("name");
-        if ( attrName=="might" || attrName=="speed" || attrName=="intellect" ) {
+        if ( attrName=="might" || attrName=="speed" || attrName=="intellect" || attrName=="SpecialDamage") {
             checkCharStates(getObj("character", obj.get("_characterid")));
 	    };
 	  	return;
@@ -661,12 +691,12 @@ var NathaNumenera = NathaNumenera || (function () {
         		        };
                     };
 	            };
-                if (paramArray.length != 8) {
+                if (paramArray.length != 9) {
                 	//this function requires more parameters
-                    sendChat("GM", "&{template:nathaNumMsg} {{chatmessage=nathanum-macroroll}} {{genericMsg=Requires 8 paramaters : token|stat name|difficulty|assets|Cost|Effort on Roll|Effort on Damage|Roll Bonus}}");
+                    sendChat("GM", "&{template:nathaNumMsg} {{chatmessage=nathanum-macroroll}} {{genericMsg=Requires 9 paramaters : token|stat name|difficulty|assets|Cost|Effort on Roll|Effort on Damage|Roll Bonus|Skill level (-1 to 2)}}");
                     return false;
             	};
-	            statRoll(obj,paramArray[1],msg.who,paramArray[2],paramArray[3],paramArray[4],paramArray[5],paramArray[6],paramArray[7])
+	            statRoll(obj,paramArray[1],msg.who,paramArray[2],paramArray[3],paramArray[4],paramArray[5],paramArray[6],paramArray[7],paramArray[8])
                 break;
             case '!nathanum-recoveryroll':
 	            if (!obj) {
